@@ -1,3 +1,7 @@
+# ====================================================================
+# Copyright (c) 2026 PJHkorea | Licensed under the Apache License, Version 2.0
+# ====================================================================
+
 import jax
 import optax
 from typing import Optional, Callable, Union
