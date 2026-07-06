@@ -97,13 +97,8 @@ def configure_enterprise_silicon_mux_optimizer(
         # [KR] 중복 호출을 완전히 박멸하여 Host OOM을 방어하고 병렬 마스크 트리 구조 자동 병합
         # [EN] Thoroughly obliterate redundant tracing to preempt Host OOM; synthesize parallel mask PyTree structures
         # ====================================================================
-        # [KR] 상단에서 추출한 flat_params와 tree_def의 쌍(zip)을 활용해 단 1회만 노드를 탐색하도록 스트림 통합
-        # [EN] Leverage the paired zip of flat_params and tree_def extracted above to enforce a single-pass traversal
-        path_leaf_pairs = list(zip([p[0] for p in flat_params] if isinstance(flat_params, list) and len(flat_params) > 0 and isinstance(flat_params[0], tuple) else flat_params, flat_params)) 
-        
-        # [KR] 앞서 상단부 구조와의 싱크를 맞추기 위해, 상단의 flat_params가 이미 path를 포함한 구조라면 바로 사용하고
-        # 아니라면 아래와 같이 기존에 상단에 선언해둔 flat_params를 활용하거나, 상단부 선언을 수정하여 이 스트림으로 일치시킵니다.
-        # 가장 깔끔한 완전 통합형 단일 패스 스트림 구조는 다음과 같습니다:
+        # [KR] (path, leaf_value) 구조를 갖춘 flat_params를 필터 커널에 직접 전달하여 단일 패스 탐색 수행
+        # [EN] Pass flat_params (a list of path-leaf tuples) directly into the kernel to enforce a pristine single-pass execution
         mapped_tensors = list(map(_extract_silicon_mask_by_path, flat_params))
         
         # [KR] 전체 가중치 파라미터 구조와 정확히 동일하게 대칭 사상된 학습률 트리와 가중치 감쇠 트리를 완벽하게 복원
@@ -113,7 +108,7 @@ def configure_enterprise_silicon_mux_optimizer(
 
 
 
-        # ====================================================================
+               # ====================================================================
         # [5TH-GEN PURE SILICON HADAMARD MULTIPLEXER ENGINE]
         # [KR] 이중 감쇠를 배제하고 오리지널 AdamW LLRD 수식을 단일 아다마르 레일 위에서 무결하게 재현
         # [EN] Execute pristine AdamW formulations via inline Hadamard tensor products without double-dipping
@@ -138,8 +133,6 @@ def configure_enterprise_silicon_mux_optimizer(
             updates, lr_mask_tree, wd_mask_tree, safe_params
         )
         return multiplexed_updates, next_state
-
-
 
 
 
