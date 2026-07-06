@@ -104,25 +104,34 @@ def configure_enterprise_silicon_mux_optimizer(
         wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
 
 
-        # [Zero-Stall Inline Hadamard Scaling]
-        # 분기 없는 단일 클럭 아다마르 곱으로 가중치 감쇠(Weight Decay)를 적용하여 하드웨어 최적화
-        
-        # 1. 기저 옵티마이저 업데이트 수행
+        # ====================================================================
+        # [ZERO-STALL INLINE HADAMARD SCALING MULTIPLEXER]
+        # [KR] 분기 없는 단일 클럭 아다마르 곱(Hadamard Product) 최적화 및 가중치 감쇠 집행
+        # [EN] Layer-wise differential scaling via single-cycle inline Hadamard tensor products
+        # ====================================================================
+        # 1. [KR] 공통 기저가 되는 단일 엔터프라이즈 AdamW 최적화 업데이트 벡터 계산
+        # 1. [EN] Compute underlying base update vectors via common underlying AdamW engine
         updates, next_state = base_optimizer.update(updates, state, params)
-        
-        # 2. 파라미터 존재 여부를 0.0f/1.0f 리터럴 가드로 치환하여 분기(Branch) 회피
+
+        # 2. [KR] 파라미터 존재 여부를 0.0f/1.0f 리터럴 가드로 치환하여 하드웨어 분기(Branch) 완전 회피
+        # 2. [EN] Map parametric existence into float32 literal register guards to bypass hardware branch stalls
         has_params = (params is not None)
         wd_activation_gate = has_params * jnp.float32(1.0) + (not has_params) * jnp.float32(0.0)
+
         
-        # 3. params가 None인 경우를 처리하기 위한 런타임 엣지 케이스 안전장치
+        # 3. [KR] params가 None일 때의 차원 크래시를 방어하기 위한 컴파일 타임 정적 레일 융합 안전장치
+        # 3. [EN] Bind unified array structures at compile-time to shield against dimension errors if params is None
         safe_params = params if has_params else updates
+
         
-        # 4. AdamW 규격에 맞게 파라미터(p)에 직접 감쇠율을 곱하여 최종 업데이트 계산
+        # 4. [KR] AdamW 규격에 맞게 파라미터(p)에 직접 감쇠율을 곱하여 단일 아다마르 레일 위에서 최종 업데이트 계산
+        # 4. [EN] Execute core inline updates directly targeting parameters (p) to fully adhere to standard AdamW formulations
         multiplexed_updates = jax.tree_util.tree_map(
             lambda u, lr, wd, p: u * lr - (p * (wd * wd_activation_gate)),
             updates, lr_mask_tree, wd_mask_tree, safe_params
         )
         return multiplexed_updates, next_state
+
 
 
 
