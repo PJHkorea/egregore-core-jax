@@ -49,7 +49,14 @@ $$\text{Update} = \text{lr} \odot \mathbf{u} + \text{lr} \odot \text{wd} \odot \
 
 ## 5. 최종 구현 코어 세그먼트 (Final Core Implementation Segment)
 
+## 5. Final Core Implementation Segment
+
 ```python
+# [STATIC VIEW PYTREE MASK COALESCING]
+# Reconstruct look-alike learning rate and weight decay PyTree topologies
+lr_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[0] for t in mapped_tensors])
+wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
+
 # 5th-Gen Pure Silicon MUX Core Formulation
 # - updates: Adam update delta vector with built-in negative sign (u)
 # - safe_params: Original parameter PyTree topology (p)
@@ -62,3 +69,4 @@ multiplexed_updates = jax.tree_util.tree_map(
 # └─ [+]       : Algebraic Sign Synchronization Operator
 # └─ [p * ...] : Positive Weight Decay Factor (Drives reduction via synchronized addition)
 ```
+
