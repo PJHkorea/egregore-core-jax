@@ -90,7 +90,7 @@ def configure_enterprise_silicon_mux_optimizer(
 
 
 
-               # ====================================================================
+        # ====================================================================
         # [STATIC VIEW PYTREE MASK COALESCING]
         # [KR] 파이썬 인터프리터의 순차 루프 오버헤드를 배제하고, 가속기 친화적인 병렬 마스크 트리 구조 자동 병합
         # [EN] Eliminate sequential interpreter overhead; synthesize accelerator-aligned parallel mask PyTree structures
@@ -104,31 +104,23 @@ def configure_enterprise_silicon_mux_optimizer(
         wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
 
 
-        # ====================================================================
-        # [ZERO-STALL INLINE HADAMARD SCALING MULTIPLEXER]
-        # [KR] 옥타스 분기 체인을 거치지 않고, 가속기 내부에서 단일 클럭 아다마르 곱으로 차등 스케일링 집행
-        #    [인프라 최적화] 바깥쪽 파이썬 if/else 분기벽마저 대수적 제로 수축(Squelch) 기믹으로 원천 분쇄
-        # [EN] Bypass Optax transform chains; execute layer-wise differential scaling via single-cycle inline Hadamard products
-        # ====================================================================
-        # 1. 기저 옵티마이저(base_optimizer)의 그라디언트 업데이트 벡터 계산 연산 수행
+        # [Zero-Stall Inline Hadamard Scaling] Python if/else 분기를 대수적 제로 수축(Squelch) 기믹으로 원천 분쇄
         updates, next_state = base_optimizer.update(updates, state, params)
         
-        # 2. [KR] params가 None일 경우 가중치 감쇠(WD)를 대수적으로 0.0f 무력화하여 if/else 조건문 구조를 완벽히 도살
-        #    [EN] Squelch weight decay algebraically into a pure 0.0f matrix if params is None, thoroughly slaughtering if/else structures
-        safe_params = params if params is not None else jax.tree_util.tree_map(jnp.zeros_like, updates)
-        wd_activation_gate = jnp.float32(1.0) if params is not None else jnp.float32(0.0)
+        # params 유무를 0.0f 또는 1.0f의 수치 리터럴 가드로 치환
+        has_params = (params is not None)
+        wd_activation_gate = has_params * jnp.float32(1.0) + (not has_params) * jnp.float32(0.0)
         
-        # 3. [KR] 단 하나의 인라인 아다마르 레일 위에서 그라디언트 스케일링과 가중치 감쇠를 분기 없이 결합
-        #    [EN] Merge gradient scaling and weight decay on a single inline Hadamard rail completely free of execution branches
+        # 분기 흔적 없이 단일 대수 수식 레일 위에서 업데이트 유닛 가동
         multiplexed_updates = jax.tree_util.tree_map(
-            lambda u, lr, wd, p: u * lr - (p * (wd * wd_activation_gate)),
-            updates, lr_mask_tree, wd_mask_tree, safe_params
+            lambda u, lr, wd: u * lr - (u * (wd * wd_activation_gate)),
+            updates, lr_mask_tree, wd_mask_tree
         )
-        
         return multiplexed_updates, next_state
 
 
-      # ====================================================================
+
+    # ====================================================================
     # [COMPILER-CAPTURED ENTERPRISE GATEWAY]
     # [KR] 외부 프레임워크와의 하이드로 동기화를 위해 optax 규격 인터페이스 래핑 및 전산 객체 반환
     # [EN] Wrap execution mechanics under standard Optax protocols to ensure seamless downstream ingestion
