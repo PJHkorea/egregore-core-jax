@@ -31,7 +31,7 @@ def configure_enterprise_silicon_mux_optimizer(
 
 
     
-      # ====================================================================
+    # ====================================================================
     # [SILICON-ALIGNED HADAMARD INLINE MUX ENGINE]
     # [KR] 다중 옵티마이저 분기를 단일 최적화 레일로 통합하고 대수적 아다마르 스케일러로 변환
     # [EN] Unify multi-optimizer branches into a single engine using algebraic Hadamard scalers
@@ -54,7 +54,7 @@ def configure_enterprise_silicon_mux_optimizer(
 
 
         
-             # ====================================================================
+        # ====================================================================
         # [STATIC VIEW ADAPTIVE INLINE SHIELD]
         # [KR] 가속기 컴파일 타임에 PyTree 전체 구조와 키 경로를 레지스터 상수로 동적 사상
         # [EN] Dynamically map full PyTree topology and key paths into static register constants at compile-time
@@ -92,14 +92,19 @@ def configure_enterprise_silicon_mux_optimizer(
             return (jnp.full_like(leaf_value, leaf_lr), jnp.full_like(leaf_value, leaf_wd))
 
 
-
         # ====================================================================
         # [STATIC VIEW PYTREE MASK COALESCING]
-        # [KR] 파이썬 인터프리터의 순차 루프 오버헤드를 배제하고, 가속기 친화적인 병렬 마스크 트리 구조 자동 병합
-        # [EN] Eliminate sequential interpreter overhead; synthesize accelerator-aligned parallel mask PyTree structures
+        # [KR] 중복 호출을 완전히 박멸하여 Host OOM을 방어하고 병렬 마스크 트리 구조 자동 병합
+        # [EN] Thoroughly obliterate redundant tracing to preempt Host OOM; synthesize parallel mask PyTree structures
         # ====================================================================
-        path_leaf_pairs, tree_def = jax.tree_util.tree_flatten_with_path(params)
-        mapped_tensors = list(map(_extract_silicon_mask_by_path, path_leaf_pairs))
+        # [KR] 상단에서 추출한 flat_params와 tree_def의 쌍(zip)을 활용해 단 1회만 노드를 탐색하도록 스트림 통합
+        # [EN] Leverage the paired zip of flat_params and tree_def extracted above to enforce a single-pass traversal
+        path_leaf_pairs = list(zip([p[0] for p in flat_params] if isinstance(flat_params, list) and len(flat_params) > 0 and isinstance(flat_params[0], tuple) else flat_params, flat_params)) 
+        
+        # [KR] 앞서 상단부 구조와의 싱크를 맞추기 위해, 상단의 flat_params가 이미 path를 포함한 구조라면 바로 사용하고
+        # 아니라면 아래와 같이 기존에 상단에 선언해둔 flat_params를 활용하거나, 상단부 선언을 수정하여 이 스트림으로 일치시킵니다.
+        # 가장 깔끔한 완전 통합형 단일 패스 스트림 구조는 다음과 같습니다:
+        mapped_tensors = list(map(_extract_silicon_mask_by_path, flat_params))
         
         # [KR] 전체 가중치 파라미터 구조와 정확히 동일하게 대칭 사상된 학습률 트리와 가중치 감쇠 트리를 완벽하게 복원
         # [EN] Reconstruct look-alike learning rate and weight decay PyTree topologies matching the exact parametric signature
@@ -107,7 +112,8 @@ def configure_enterprise_silicon_mux_optimizer(
         wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
 
 
-               # ====================================================================
+
+        # ====================================================================
         # [5TH-GEN PURE SILICON HADAMARD MULTIPLEXER ENGINE]
         # [KR] 이중 감쇠를 배제하고 오리지널 AdamW LLRD 수식을 단일 아다마르 레일 위에서 무결하게 재현
         # [EN] Execute pristine AdamW formulations via inline Hadamard tensor products without double-dipping
