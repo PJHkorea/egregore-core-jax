@@ -51,7 +51,7 @@ def configure_enterprise_silicon_mux_optimizer(
 
 
         
-               # ====================================================================
+        # ====================================================================
         # [STATIC VIEW ADAPTIVE INLINE SHIELD]
         # [KR] 가속기 컴파일 타임에 PyTree 전체 구조와 키 경로를 레지스터 상수로 동적 사상
         # [EN] Dynamically map full PyTree topology and key paths into static register constants at compile-time
@@ -104,19 +104,26 @@ def configure_enterprise_silicon_mux_optimizer(
         wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
 
 
-        # [Zero-Stall Inline Hadamard Scaling] Python if/else 분기를 대수적 제로 수축(Squelch) 기믹으로 원천 분쇄
+        # [Zero-Stall Inline Hadamard Scaling]
+        # 분기 없는 단일 클럭 아다마르 곱으로 가중치 감쇠(Weight Decay)를 적용하여 하드웨어 최적화
+        
+        # 1. 기저 옵티마이저 업데이트 수행
         updates, next_state = base_optimizer.update(updates, state, params)
         
-        # params 유무를 0.0f 또는 1.0f의 수치 리터럴 가드로 치환
+        # 2. 파라미터 존재 여부를 0.0f/1.0f 리터럴 가드로 치환하여 분기(Branch) 회피
         has_params = (params is not None)
         wd_activation_gate = has_params * jnp.float32(1.0) + (not has_params) * jnp.float32(0.0)
         
-        # 분기 흔적 없이 단일 대수 수식 레일 위에서 업데이트 유닛 가동
+        # 3. params가 None인 경우를 처리하기 위한 런타임 엣지 케이스 안전장치
+        safe_params = params if has_params else updates
+        
+        # 4. AdamW 규격에 맞게 파라미터(p)에 직접 감쇠율을 곱하여 최종 업데이트 계산
         multiplexed_updates = jax.tree_util.tree_map(
-            lambda u, lr, wd: u * lr - (u * (wd * wd_activation_gate)),
-            updates, lr_mask_tree, wd_mask_tree
+            lambda u, lr, wd, p: u * lr - (p * (wd * wd_activation_gate)),
+            updates, lr_mask_tree, wd_mask_tree, safe_params
         )
         return multiplexed_updates, next_state
+
 
 
 
