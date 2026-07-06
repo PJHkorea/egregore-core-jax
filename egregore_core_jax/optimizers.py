@@ -88,23 +88,6 @@ def configure_enterprise_silicon_mux_optimizer(
             # [EN] Return structured optimization factor tensor pairs tailored for hardware unrolling
             return (jnp.full_like(leaf_value, leaf_lr), jnp.full_like(leaf_value, leaf_wd))
 
-            
-                       # ====================================================================
-            # [SILICON HARDWARE MULTIPLEXER REGISTER INTERFACE]
-            # [KR] 파이썬 구문 오류를 차단하고 가속기 ALU 단축 레지스터용 float32 정적 리터럴 마스크로 완벽 압축 (2안 관철)
-            # [EN] Shield Python syntax; compress precisely into float32 literal register masks for the ALU (Enforces Option 2)
-            # ====================================================================
-            is_gate = (root_key_name == "gate") * jnp.float32(1.0)
-            is_backbone = (root_key_name != "gate") * jnp.float32(1.0)
-            
-            # [KR] 수치 해석 레일 위에서 대수적 결합을 통해 독립된 상수를 인라인으로 단 한 번에 계산
-            # [EN] Inline single-cycle algebraic mixing of independent hyperparameter constants over the FP32 rails
-            leaf_lr = (is_gate * gate_lr) + (is_backbone * backbone_lr)
-            leaf_wd = (is_gate * gate_weight_decay) + (is_backbone * backbone_weight_decay)
-            
-            # [KR] 가속기가 소모할 최적화 계수 텐서 쌍을 구조적 형태로 반환
-            # [EN] Return structured optimization factor tensor pairs tailored for hardware unrolling
-            return (jnp.full_like(leaf_value, leaf_lr), jnp.full_like(leaf_value, leaf_wd))
 
 
                # ====================================================================
@@ -121,31 +104,31 @@ def configure_enterprise_silicon_mux_optimizer(
         wd_mask_tree = jax.tree_util.tree_unflatten(tree_def, [t[1] for t in mapped_tensors])
 
 
-              # ====================================================================
+        # ====================================================================
         # [ZERO-STALL INLINE HADAMARD SCALING MULTIPLEXER]
         # [KR] 옥타스 분기 체인을 거치지 않고, 가속기 내부에서 단일 클럭 아다마르 곱으로 차등 스케일링 집행
+        #    [인프라 최적화] 바깥쪽 파이썬 if/else 분기벽마저 대수적 제로 수축(Squelch) 기믹으로 원천 분쇄
         # [EN] Bypass Optax transform chains; execute layer-wise differential scaling via single-cycle inline Hadamard products
         # ====================================================================
         # 1. 기저 옵티마이저(base_optimizer)의 그라디언트 업데이트 벡터 계산 연산 수행
         updates, next_state = base_optimizer.update(updates, state, params)
         
-        # 2. [KR] if/else 조건 분기 및 프레임워크 딕셔너리 정체 없이, 가속기 내부에서 텐서 곱셈만으로 업데이트 스케일 조정
-        #    [인프라 최적화] 람다 내부 삼항 조건문 분기를 소멸시키기 위해 상위 레벨에서 대수 연산 방향 분리 격리
-        # 2. [EN] Scale optimization trajectories entirely within the accelerator vector unit without explicit routing or framework stalls
-        if params is not None:
-            multiplexed_updates = jax.tree_util.tree_map(
-                lambda u, lr, wd, p: u * lr - (p * wd),
-                updates, lr_mask_tree, wd_mask_tree, params
-            )
-        else:
-            multiplexed_updates = jax.tree_util.tree_map(
-                lambda u, lr: u * lr,
-                updates, lr_mask_tree
-            )
+        # 2. [KR] params가 None일 경우 가중치 감쇠(WD)를 대수적으로 0.0f 무력화하여 if/else 조건문 구조를 완벽히 도살
+        #    [EN] Squelch weight decay algebraically into a pure 0.0f matrix if params is None, thoroughly slaughtering if/else structures
+        safe_params = params if params is not None else jax.tree_util.tree_map(jnp.zeros_like, updates)
+        wd_activation_gate = jnp.float32(1.0) if params is not None else jnp.float32(0.0)
+        
+        # 3. [KR] 단 하나의 인라인 아다마르 레일 위에서 그라디언트 스케일링과 가중치 감쇠를 분기 없이 결합
+        #    [EN] Merge gradient scaling and weight decay on a single inline Hadamard rail completely free of execution branches
+        multiplexed_updates = jax.tree_util.tree_map(
+            lambda u, lr, wd, p: u * lr - (p * (wd * wd_activation_gate)),
+            updates, lr_mask_tree, wd_mask_tree, safe_params
+        )
         
         return multiplexed_updates, next_state
 
-    # ====================================================================
+
+      # ====================================================================
     # [COMPILER-CAPTURED ENTERPRISE GATEWAY]
     # [KR] 외부 프레임워크와의 하이드로 동기화를 위해 optax 규격 인터페이스 래핑 및 전산 객체 반환
     # [EN] Wrap execution mechanics under standard Optax protocols to ensure seamless downstream ingestion
@@ -154,15 +137,3 @@ def configure_enterprise_silicon_mux_optimizer(
         init=base_optimizer.init,
         update=transform_update_via_hadamard_mux
     )
-
-
-    # ====================================================================
-    # [COMPILER-CAPTURED ENTERPRISE GATEWAY]
-    # [KR] 외부 프레임워크와의 하이드로 동기화를 위해 optax 규격 인터페이스 래핑 및 전산 객체 반환
-    # [EN] Wrap execution mechanics under standard Optax protocols to ensure seamless downstream ingestion
-    # ====================================================================
-    return optax.GradientTransformation(
-        init=base_optimizer.init,
-        update=transform_update_via_hadamard_mux
-    )
-
